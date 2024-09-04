@@ -292,7 +292,7 @@ export function interop(
       {},
       inheritedVariables instanceof Map
         ? Object.fromEntries(inheritedVariables.entries())
-        : undefined,
+        : inheritedVariables,
       memoOutput.variables,
     );
   }, [inheritedVariables, memoOutput.variables]);
