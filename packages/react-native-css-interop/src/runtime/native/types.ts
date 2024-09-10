@@ -53,6 +53,7 @@ export type Refs = {
   variables: VariableContextValue;
   containers: ContainerRecord;
   props: Record<string, any> | null;
+  isAnimationDisabled: boolean;
 };
 
 export type SharedState = {

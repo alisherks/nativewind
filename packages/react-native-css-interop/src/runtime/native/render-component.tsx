@@ -80,7 +80,7 @@ export function renderComponent(
 
       const { useAnimatedStyle } =
         require("react-native-reanimated") as typeof import("react-native-reanimated");
-
+      props['_isAnimated'] = true;
       props.style = useAnimatedStyle(() => {
         function flattenAnimatedProps(style: any): any {
           // Primitive or null

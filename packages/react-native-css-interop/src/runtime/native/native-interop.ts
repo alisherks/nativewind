@@ -49,6 +49,7 @@ import {
 import { DEFAULT_CONTAINER_NAME } from "../../shared";
 import { assignToTarget, getTargetValue } from "./utils";
 import { GestureHandlerEvent } from "react-native-reanimated/lib/typescript/reanimated2/hook";
+import { useIsAnimationDisabled } from "./animation-disabled";
 
 export function interop(
   component: ReactComponent<any>,
@@ -59,6 +60,7 @@ export function interop(
   // These are inherited from the parent components
   const inheritedVariables = useContext(VariableContext);
   const inheritedContainers = useContext(containerContext);
+  const isAnimationDisabled = useIsAnimationDisabled();
 
   const props = { ...originalProps };
 
@@ -94,6 +96,7 @@ export function interop(
     containers: inheritedContainers,
     props,
     variables: inheritedVariables,
+    isAnimationDisabled,
   };
 
   /*
@@ -423,7 +426,7 @@ function getDeclarations(
     for (const className of state.className.split(/\s+/)) {
       const ruleSet = getStyle(className, state.declarationTracking.effect);
 
-      if (!ruleSet) {
+      if (!ruleSet || (refs.isAnimationDisabled && ruleSet.animation)) {
         continue;
       }
 
@@ -1101,6 +1104,7 @@ function collectInlineRules(
     for (const style of styles) {
       if (typeof style === "object" && "$type" in style) {
         const ruleSet = style as StyleRuleSet;
+        if (refs.isAnimationDisabled && ruleSet.animation) continue;
         handleUpgrades(refs.sharedState, ruleSet);
         collectRules(state, refs, ruleSet, normal, "normal");
         collectRules(state, refs, ruleSet, important, "important");

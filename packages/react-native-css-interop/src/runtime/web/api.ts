@@ -101,3 +101,9 @@ export function vars<T extends Record<`--${string}`, string | number>>(
 export function useSafeAreaEnv(): {} | undefined {
   return undefined;
 }
+
+export const AnimationDisabled = (props: React.PropsWithChildren) => {
+  return props.children;
+};
+
+export const useIsAnimationDisabled = () => false;

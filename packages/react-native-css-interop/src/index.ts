@@ -15,4 +15,6 @@ export {
   useSafeAreaEnv,
   useUnstableNativeVariable,
   vars,
+  AnimationDisabled,
+  useIsAnimationDisabled,
 } from "./runtime";

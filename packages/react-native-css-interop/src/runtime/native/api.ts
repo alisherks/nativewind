@@ -15,6 +15,7 @@ import { assignToTarget } from "./utils";
 export { StyleSheet } from "./stylesheet";
 export { colorScheme } from "./appearance-observables";
 export { rem } from "./unit-observables";
+export { AnimationDisabled, useIsAnimationDisabled } from "./animation-disabled";
 
 export const interopComponents = new Map<
   object | string,
