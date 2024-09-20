@@ -10,27 +10,27 @@ import {
   RenderOptions as TLRenderOptions,
 } from "@testing-library/react-native";
 
-import { createInteropElement } from "../../runtime";
-import { INTERNAL_SET } from "../../shared";
-import { cssInterop, remapProps, interopComponents } from "../../runtime/api";
-import { cssToReactNativeRuntime } from "../../css-to-rn";
-import { injectData } from "../../runtime/native/styles";
-import { vh, vw } from "../../runtime/native/unit-observables";
+import { createInteropElement } from "../runtime";
+import { INTERNAL_SET } from "../shared";
+import { cssInterop, remapProps, interopComponents } from "../runtime/api";
+import { cssToReactNativeRuntime } from "../css-to-rn";
+import { injectData } from "../runtime/native/styles";
+import { vh, vw } from "../runtime/native/unit-observables";
 import {
   CssToReactNativeRuntimeOptions,
   EnableCssInteropOptions,
   ReactComponent,
   Style,
-} from "../../types";
-import { isReduceMotionEnabled } from "../../runtime/native/appearance-observables";
-import { resetData } from "../../runtime/native/styles";
-import { warnings } from "../../runtime/native/globals";
+} from "../types";
+import { isReduceMotionEnabled } from "../runtime/native/appearance-observables";
+import { resetData } from "../runtime/native/styles";
+import { warnings } from "../runtime/native/globals";
 
-export * from "../../index";
-export * from "../../runtime/native/styles";
-export * from "../../types";
+export * from "../index";
+export * from "../runtime/native/styles";
+export * from "../types";
 export * from "@testing-library/react-native";
-export { INTERNAL_SET } from "../../shared";
+export { INTERNAL_SET } from "../shared";
 
 declare global {
   namespace jest {
@@ -63,8 +63,8 @@ export interface RenderOptions extends TLRenderOptions {
   logOutput?: boolean;
 }
 
-export function render<T>(
-  component: ReactElement<T>,
+export function render(
+  component: ReactElement<any>,
   { css, cssOptions, ...options }: RenderOptions = {},
 ) {
   if (options.logOutput) {
@@ -83,6 +83,10 @@ export function render<T>(
     ...options,
   });
 }
+
+render.debug = (component: ReactElement<any>, options: RenderOptions = {}) => {
+  return render(component, { ...options, logOutput: true });
+};
 
 export function getWarnings() {
   return warnings;
@@ -141,6 +145,13 @@ export function registerCSS(
   injectData(compiled);
 }
 
+registerCSS.debug = (
+  css: string,
+  options: CssToReactNativeRuntimeOptions & { logOutput?: boolean } = {},
+) => {
+  registerCSS(css, { ...options, logOutput: true });
+};
+
 export function setupAllComponents() {
-  require("../../runtime/components");
+  require("../runtime/components");
 }

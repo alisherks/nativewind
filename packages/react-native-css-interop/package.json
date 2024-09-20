@@ -1,5 +1,5 @@
 {
-  "version": "0.1.9",
+  "version": "0.1.10",
   "name": "react-native-css-interop",
   "description": "",
   "main": "dist/index",
@@ -55,7 +55,8 @@
     "@babel/helper-module-imports": "^7.22.15",
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
-    "lightningcss": "1.22.0",
+    "debug": "^4.3.7",
+    "lightningcss": "1.27.0",
     "semver": "^7.6.3"
   },
   "devDependencies": {

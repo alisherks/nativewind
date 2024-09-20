@@ -2,6 +2,7 @@ import connect from "connect";
 import fsPromises from "fs/promises";
 import fs from "fs";
 import path from "path";
+import { debug as debugFn, Debugger } from "debug";
 import type { MetroConfig } from "metro-config";
 import type MetroServer from "metro/src/Server";
 import type { FileSystem } from "metro-file-map";
@@ -9,7 +10,6 @@ import type { FileSystem } from "metro-file-map";
 import { expoColorSchemeWarning } from "./expo";
 import { CssToReactNativeRuntimeOptions } from "../types";
 import { cssToReactNativeRuntime } from "../css-to-rn";
-import { getNativeJS, platformPath } from "./shared";
 
 /**
  * Injects the CSS into the React Native runtime.
@@ -40,6 +40,7 @@ import { getNativeJS, platformPath } from "./shared";
 export type WithCssInteropOptions = CssToReactNativeRuntimeOptions & {
   input: string;
   platforms?: string[];
+  debug?: Debugger;
   processPROD: (platform: string) => string | Buffer;
   processDEV: (
     platform: string,
@@ -48,7 +49,7 @@ export type WithCssInteropOptions = CssToReactNativeRuntimeOptions & {
 };
 
 let haste: any;
-const virtualModules = new Map<string, Promise<Buffer>>();
+const virtualModules = new Map<string, Promise<string>>();
 
 export function withCssInterop(
   config: MetroConfig,
@@ -61,6 +62,10 @@ export function withCssInterop(
   const originalResolver = config.resolver?.resolveRequest;
   const originalMiddleware = config.server?.enhanceMiddleware;
 
+  const debug = options.debug || debugFn("react-native-css-interop");
+  options.debug = debug;
+  debug("withCssInterop: successfully called");
+
   /*
    * Ensure the production files exist before Metro starts
    * Metro (or who ever is controlling Metro) will need to get the config before
@@ -71,6 +76,9 @@ export function withCssInterop(
     path.dirname(require.resolve("react-native-css-interop/package.json")),
     ".cache",
   );
+
+  debug(`platforms: ${platforms}`);
+  debug(`prodOutputDir: ${prodOutputDir}`);
 
   fs.mkdirSync(prodOutputDir, { recursive: true });
 
@@ -108,19 +116,24 @@ export function withCssInterop(
          * (or maybe the file tree hasn't read the files yet? Or this breaks cache SHA1 hash?)
          */
         if (!transformOptions.dev) {
+          debug(`prodOutputDir: ${prodOutputDir}`);
           const platform = transformOptions.platform || "native";
 
           await fsPromises.mkdir(prodOutputDir, { recursive: true });
 
           if (platform === "web") {
             const output = path.join(prodOutputDir, `web.css`);
-            await fsPromises.writeFile(output, options.processPROD(platform));
+            await fsPromises.writeFile(
+              output,
+              options.processPROD(platform).toString("utf-8"),
+            );
           } else {
             const output = path.join(prodOutputDir, `${platform}.js`);
             await fsPromises.writeFile(
               output,
               getNativeJS(
                 cssToReactNativeRuntime(options.processPROD(platform), options),
+                options.debug,
               ),
             );
           }
@@ -153,6 +166,7 @@ export function withCssInterop(
        *       supports it at time of writing.
        */
       enhanceMiddleware: (middleware, metroServer) => {
+        debug(`enhanceMiddleware successfully called`);
         const server = connect();
         const bundler = metroServer.getBundler().getBundler();
 
@@ -194,13 +208,19 @@ export function withCssInterop(
           return resolved;
         }
 
+        debug(`resolveRequest: found input`);
+
         platform = platform || "native";
 
         const isDev = (context as any).dev;
 
+        debug(`resolveRequest.isDev ${isDev}`);
+
         if (isDev) {
           // Generate a fake name for our virtual module. Make it platform specific
           const platformFilePath = platformPath(resolved.filePath, platform);
+
+          debug(`platformFilePath: ${platformFilePath}`);
 
           startCSSProcessor(platformFilePath, platform, options, true);
 
@@ -216,7 +236,7 @@ export function withCssInterop(
         } else {
           return resolver(
             context,
-            path.join("react-native-css-interop", ".cache", platform),
+            path.join(prodOutputDir, platform),
             platform,
           ) as any;
         }
@@ -246,10 +266,17 @@ async function startCSSProcessor(
       filePath,
       Promise.resolve(
         platform === "web"
-          ? Buffer.from(css)
-          : getNativeJS(cssToReactNativeRuntime(css, options), dev),
+          ? css
+          : getNativeJS(
+              cssToReactNativeRuntime(css, options),
+              options.debug,
+              dev,
+              Date.now(),
+            ),
       ),
     );
+
+    options.debug?.("Firing change event to Metro");
 
     // Tell Metro that the virtual module has changed
     // It will think this is a fileSystem event and update its virtual fileTree
@@ -268,8 +295,8 @@ async function startCSSProcessor(
     });
   }).then((css) => {
     return platform === "web"
-      ? Buffer.from(css)
-      : getNativeJS(cssToReactNativeRuntime(css, options), dev);
+      ? css
+      : getNativeJS(cssToReactNativeRuntime(css, options), options.debug, dev);
   });
 
   virtualModules.set(filePath, virtualStyles);
@@ -321,10 +348,134 @@ function ensureBundlerPatched(
   ) {
     const virtualModule = virtualModules.get(filePath);
     if (virtualModule) {
-      fileBuffer = await virtualModule;
+      fileBuffer = Buffer.from(await virtualModule);
     }
 
     return originalTransformFile(filePath, transformOptions, fileBuffer);
   };
   bundler.transformFile.__css_interop__patched = true;
+}
+
+/**
+ * Convert a data structure to JavaScript.
+ * The output should be similar to JSON, but without the extra characters.
+ */
+function stringify(data: unknown): string {
+  switch (typeof data) {
+    case "bigint":
+    case "symbol":
+    case "function":
+      throw new Error(`Cannot stringify ${typeof data}`);
+    case "string":
+      return `"${data}"`;
+    case "number":
+      // Reduce to 3 decimal places
+      return `${Math.round(data * 1000) / 1000}`;
+    case "boolean":
+      return `${data}`;
+    case "undefined":
+      // null is processed faster than undefined
+      // JSON.stringify also converts undefined to null
+      return "null";
+    case "object": {
+      if (data === null) {
+        return "null";
+      } else if (Array.isArray(data)) {
+        return `[${data
+          .map((value) => {
+            // These values can be omitted to create a holey array
+            // This is slightly slower to parse at runtime, but keeps the
+            // file size smaller
+            return value === null || value === undefined
+              ? ""
+              : stringify(value);
+          })
+          .join(",")}]`;
+      } else {
+        return `{${Object.entries(data)
+          .flatMap(([key, value]) => {
+            // If an object's property is undefined or null we can just skip it
+            if (value === null || value === undefined) {
+              return [];
+            }
+
+            // Make sure we quote strings that require quotes
+            if (key.match(/[\[\]\-\/]/)) {
+              key = `"${key}"`;
+            }
+
+            value = stringify(value);
+
+            return [`${key}:${value}`];
+          })
+          .join(",")}}`;
+      }
+    }
+  }
+}
+
+function getNativeJS(
+  data = {},
+  debug?: Debugger,
+  dev = false,
+  fastRefreshUpdateStart = 0,
+): string {
+  debug?.("Start stringify");
+
+  let output = `
+ "use strict";
+ "__css-interop-transformed";
+Object.defineProperty(exports, "__esModule", { value: true });
+const __inject_1 = require("react-native-css-interop/dist/runtime/native/styles");
+(0, __inject_1.injectData)(${stringify(data)});
+`;
+
+  debug?.("Finished stringify");
+
+  if (dev) {
+    output += `
+/**
+ * This is a hack for Expo Router. It's _layout files export 'unstable_settings' which break Fast Refresh
+ * Expo Router only supports Metro as a bundler
+ */
+if (typeof __METRO_GLOBAL_PREFIX__ !== "undefined" && global[__METRO_GLOBAL_PREFIX__ + "__ReactRefresh"]) {
+  const Refresh = global[__METRO_GLOBAL_PREFIX__ + "__ReactRefresh"]
+  const isLikelyComponentType = Refresh.isLikelyComponentType
+  const expoRouterExports = new WeakSet()
+  Object.assign(Refresh, {
+    isLikelyComponentType(value) {
+      if (typeof value === "object" && "unstable_settings" in value) {
+        expoRouterExports.add(value.unstable_settings)
+      }
+
+      if (typeof value === "object" && "ErrorBoundary" in value) {
+        expoRouterExports.add(value.ErrorBoundary)
+      }
+
+      // When ErrorBoundary is exported, the inverse dependency will also include the _ctx file. So we need to account for it as well
+      if (typeof value === "object" && "ctx" in value && value.ctx.name === "metroContext") {
+        expoRouterExports.add(value.ctx)
+      }
+
+      return expoRouterExports.has(value) || isLikelyComponentType(value)
+    }
+  })
+}
+`;
+  }
+
+  if (debug?.enabled) {
+    if (fastRefreshUpdateStart) {
+      output = `console.log(\`Fast Refresh took: \${Date.now()-${fastRefreshUpdateStart}}ms\`);${output};`;
+    }
+    output = `const start=Date.now();${output};console.log(\`${debug.namespace} parse time: \${Date.now() - start}ms\`)`;
+
+    debug(`Output size: ${Buffer.byteLength(output, "utf8")} bytes`);
+  }
+
+  return output;
+}
+
+function platformPath(filePath: string, platform: string) {
+  return `${filePath}.${platform}.${platform === "web" ? "css" : "js"}`;
 }
